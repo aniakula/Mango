@@ -40,6 +40,7 @@ public:
   Tensor contiguous() const;
   void accum_grad(const Tensor &grad_out);
   void zero_grad();
+  void backward();
 
   static Tensor zeros(const Shape &shape, DType type = DType::F32);
 
@@ -52,7 +53,7 @@ public:
 
   void transpose(size_t dim1 = 0, size_t dim2 = 1);
 
-  // Non-recording kernels (no grad_fn_). Use these inside backward passes.
+  // Non-recording kernels (no grad_fn_)
   Tensor add(const Tensor &other) const;
   Tensor sub(const Tensor &other) const;
   Tensor mult(const Tensor &other) const;
@@ -60,7 +61,7 @@ public:
   Tensor mm(const Tensor &other) const;
   Tensor sq() const;
 
-  // Recording ops — attach Backward nodes when inputs require grad.
+  // Recording ops
   Tensor operator+(const Tensor &other) const;
   Tensor operator-() const;
   Tensor operator-(const Tensor &other) const;
@@ -120,7 +121,7 @@ template <typename T> Tensor Tensor::randn(const Shape &shape, bool learnable) {
   Tensor t = Tensor::empty<T>(shape, learnable);
   T *data_ptr = static_cast<T *>(t.data());
   for (size_t i = 0; i < t.numel(); i++) {
-    data_ptr[i] = dist(gen());
+    data_ptr[i] = dist(gen);
   }
   return t;
 }

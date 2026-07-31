@@ -14,6 +14,8 @@ add_executable(mango
   src/auto_grad_node_impl/sub.cpp
   src/auto_grad_node_impl/mult.cpp
   src/auto_grad_node_impl/sq.cpp
+  src/auto_grad_node_impl/sum.cpp
+  src/auto_grad_node_impl/mean.cpp
   src/auto_grad_node_impl/matmul.cpp
   src/auto_grad_node_impl/relu.cpp
   src/auto_grad_node_impl/softmax.cpp

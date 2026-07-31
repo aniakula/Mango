@@ -165,6 +165,13 @@ void Tensor::accum_grad(const Tensor &grad_out) {
   if (!grad_tensor_) {
     grad_tensor_ = std::make_shared<Tensor>(Tensor::zeros(shape_, dtype_));
   }
+  // Forward may broadcast a scalar into a larger tensor; reverse that by
+  // summing the upstream grad back down to this tensor's shape.
+  if (detail::is_scalar_like(*grad_tensor_) &&
+      !detail::is_scalar_like(grad_out)) {
+    *grad_tensor_ += grad_out.sum();
+    return;
+  }
   *grad_tensor_ += grad_out;
 }
 
@@ -173,6 +180,10 @@ void Tensor::zero_grad() {
     return;
   }
   *grad_tensor_ = Tensor::zeros(shape_, dtype_);
+}
+
+void Tensor::backward() {
+  this->grad_fn_->backwardPass(Tensor::ones<double>(this->shape()));
 }
 
 Tensor Tensor::zeros(const Shape &shape, DType type) {
