@@ -70,6 +70,20 @@ int main() {
               << "\n";
   }
 
+  section("matmul");
+  {
+    Tensor A({1.f, 2.f, 3.f, 4.f}, Shape{2, 2});
+    Tensor B({2.f, 0.f, 0.f, 2.f}, Shape{2, 2});
+    Tensor C = A.matmul(B);
+    std::cout << "A @ 2I =\n";
+    C.log();
+
+    Tensor Batched({1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f, 8.f}, Shape{2, 2, 2});
+    Tensor R = Batched.matmul(B);
+    std::cout << "(2,2,2) @ (2,2) =\n";
+    R.log();
+  }
+
   std::cout << "\nDone.\n";
   return 0;
 }

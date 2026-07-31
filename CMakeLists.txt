@@ -13,6 +13,11 @@ add_executable(mango
 
 target_include_directories(mango PRIVATE include)
 
+if(APPLE)
+  target_compile_definitions(mango PRIVATE ACCELERATE_NEW_LAPACK)
+  target_link_libraries(mango PRIVATE "-framework Accelerate")
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(mango PRIVATE -Wall -Wextra -Wpedantic)
 endif()
