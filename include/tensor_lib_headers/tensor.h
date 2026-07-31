@@ -1,9 +1,7 @@
 #pragma once
-
 #include "shape.h"
 #include "storage.h"
 #include "types.h"
-
 #include <cstddef>
 #include <initializer_list>
 #include <iostream>
@@ -13,10 +11,11 @@
 #include <type_traits>
 
 namespace mango {
-
+class Node;
 class Tensor {
 public:
   Tensor(Shape shape, DType type, bool learnable = false);
+  ~Tensor();
 
   template <typename T>
   Tensor(std::initializer_list<T> data, const Shape &shape,
@@ -27,7 +26,9 @@ public:
   DType dtype() const;
   size_t numel() const;
   size_t storage_offset() const;
-
+  Node *grad_fn();
+  const Tensor *grad();
+  bool requires_grad() const;
   void *data();
   const void *data() const;
 
@@ -37,6 +38,8 @@ public:
   Tensor clone(const Shape &newShape) const;
   bool is_contiguous() const;
   Tensor contiguous() const;
+  void accum_grad(const Tensor &grad_out);
+  void zero_grad();
 
   static Tensor zeros(const Shape &shape, DType type = DType::F32);
 
@@ -49,7 +52,17 @@ public:
 
   void transpose(size_t dim1 = 0, size_t dim2 = 1);
 
+  // Non-recording kernels (no grad_fn_). Use these inside backward passes.
+  Tensor add(const Tensor &other) const;
+  Tensor sub(const Tensor &other) const;
+  Tensor mult(const Tensor &other) const;
+  Tensor neg() const;
+  Tensor mm(const Tensor &other) const;
+  Tensor sq() const;
+
+  // Recording ops — attach Backward nodes when inputs require grad.
   Tensor operator+(const Tensor &other) const;
+  Tensor operator-() const;
   Tensor operator-(const Tensor &other) const;
   Tensor operator*(const Tensor &other) const;
   Tensor &operator+=(const Tensor &other);
@@ -57,6 +70,7 @@ public:
   Tensor &operator*=(const Tensor &other);
 
   Tensor matmul(const Tensor &other) const;
+  Tensor square() const;
   inline Tensor matmul(const Tensor &a, const Tensor &b) const {
     return a.matmul(b);
   }
@@ -69,13 +83,19 @@ public:
   void log(std::ostream &os = std::cout) const;
 
 private:
+  void clear_autograd();
+
   Shape shape_;
   Shape strides_;
   size_t offset_;
   DType dtype_;
   bool learnable_;
   std::shared_ptr<Storage> storage_;
+  std::shared_ptr<Tensor> grad_tensor_;
+  std::shared_ptr<Node> grad_fn_;
 };
+
+//----Template defs:----
 
 template <typename T> Tensor Tensor::ones(const Shape &shape, bool learnable) {
   Tensor tensor(shape, type_of<T>(), learnable);

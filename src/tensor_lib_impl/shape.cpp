@@ -1,4 +1,4 @@
-#include "shape.h"
+#include "tensor_lib_headers/shape.h"
 
 namespace mango {
 

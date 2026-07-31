@@ -1,4 +1,4 @@
-#include "tensor.h"
+#include "tensor_lib_headers/tensor.h"
 
 #include <iostream>
 
@@ -97,6 +97,19 @@ int main() {
     values.max().log();
     std::cout << "min (rank 0):\n";
     values.min().log();
+  }
+
+  section("scalar broadcast");
+  {
+    Tensor x({1.f, 2.f, 3.f, 4.f}, Shape{2, 2});
+    Tensor two({2.f}, Shape{});
+    std::cout << "x + 2 (scalar tensor):\n";
+    (x + two).log();
+    std::cout << "2 * x:\n";
+    (two * x).log();
+    std::cout << "x -= mean(x):\n";
+    x -= x.mean();
+    x.log();
   }
 
   std::cout << "\nDone.\n";

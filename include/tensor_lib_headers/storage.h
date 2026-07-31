@@ -3,8 +3,7 @@
 #include <cstddef>
 
 namespace mango {
-
-// Untyped byte buffer shared by tensor views (ATen-style storage).
+// Untyped byte buffer
 class Storage {
 public:
   explicit Storage(size_t bytes);

@@ -6,9 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(mango
   src/main.cpp
-  src/shape.cpp
-  src/storage.cpp
-  src/tensor.cpp
+  src/tensor_lib_impl/shape.cpp
+  src/tensor_lib_impl/storage.cpp
+  src/tensor_lib_impl/tensor.cpp
+  src/tensor_lib_impl/tensor_internal.cpp
+  src/auto_grad_node_impl/add.cpp
+  src/auto_grad_node_impl/sub.cpp
+  src/auto_grad_node_impl/mult.cpp
+  src/auto_grad_node_impl/sq.cpp
+  src/auto_grad_node_impl/matmul.cpp
+  src/auto_grad_node_impl/relu.cpp
+  src/auto_grad_node_impl/softmax.cpp
 )
 
 target_include_directories(mango PRIVATE include)
