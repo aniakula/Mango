@@ -1,4 +1,5 @@
 #include "tensor.h"
+#include "types.h"
 
 #if defined(__APPLE__) && defined(__MACH__)
 #ifndef ACCELERATE_NEW_LAPACK
@@ -6,7 +7,7 @@
 #endif
 #include <Accelerate/Accelerate.h>
 #else
-// 2. Fallback for Linux / Windows using standard OpenBLAS or MKL
+// for Linux / Windows use standard OpenBLAS or MKL
 #include <cblas.h>
 #endif
 
@@ -131,8 +132,78 @@ void dispatch_Op(void *lhs, const void *rhs, size_t n, DType dtype, Op op) {
   }
 }
 
-// Batched GEMM over leading dims. Last two dims are (M,K) @ (K,N).
-// Supports identical batch shapes, or broadcasting a rank-2 operand.
+enum class Reduction { Sum, Max, Min };
+
+template <typename T>
+T reduce_values(const T *values, size_t n, Reduction reduction) {
+  if (reduction == Reduction::Sum) {
+    T result{};
+    for (size_t i = 0; i < n; ++i) {
+      result += values[i];
+    }
+    return result;
+  }
+
+  if (n == 0) {
+    throw std::invalid_argument("reduction: empty tensor has no max or min");
+  }
+
+  T result = values[0];
+  for (size_t i = 1; i < n; ++i) {
+    if (reduction == Reduction::Max) {
+      result = std::max(result, values[i]);
+    } else {
+      result = std::min(result, values[i]);
+    }
+  }
+  return result;
+}
+
+template <typename T>
+void reduce_typed(const void *input, void *output, size_t n,
+                  Reduction reduction) {
+  const auto *values = static_cast<const T *>(input);
+  *static_cast<T *>(output) = reduce_values(values, n, reduction);
+}
+
+void dispatch_reduction(const void *input, void *output, size_t n, DType dtype,
+                        Reduction reduction) {
+  switch (dtype) {
+  case DType::F32:
+    reduce_typed<float>(input, output, n, reduction);
+    break;
+  case DType::F64:
+    reduce_typed<double>(input, output, n, reduction);
+    break;
+  case DType::I32:
+    reduce_typed<int32_t>(input, output, n, reduction);
+    break;
+  case DType::I64:
+    reduce_typed<int64_t>(input, output, n, reduction);
+    break;
+  case DType::B:
+    throw std::invalid_argument("reduction: bool tensors are not supported");
+  }
+}
+
+void divide_scalar_inplace(void *data, DType dtype, size_t divisor) {
+  switch (dtype) {
+  case DType::F32:
+    *static_cast<float *>(data) /= static_cast<float>(divisor);
+    break;
+  case DType::F64:
+    *static_cast<double *>(data) /= static_cast<double>(divisor);
+    break;
+  case DType::I32:
+  case DType::I64:
+    throw std::invalid_argument(
+        "mean: only floating-point tensors are supported");
+  case DType::B:
+    throw std::invalid_argument("mean: bool tensors are not supported");
+  }
+}
+
+// Batched GEMM over leading dims
 Tensor tensorMatMul(Tensor A, Tensor B) {
   assert_same_type(A.dtype(), B.dtype());
 
@@ -245,9 +316,9 @@ Tensor tensorMatMul(Tensor A, Tensor B) {
 
 } // namespace
 
-Tensor::Tensor(Shape shape, DType type)
+Tensor::Tensor(Shape shape, DType type, bool learnable)
     : shape_(std::move(shape)), strides_(Shape::compute_strides(shape_)),
-      offset_(0), dtype_(type),
+      offset_(0), dtype_(type), learnable_(learnable),
       storage_(std::make_shared<Storage>(shape_.numel() * dtype_size(type))) {}
 
 Shape Tensor::shape() const { return shape_; }
@@ -259,6 +330,39 @@ DType Tensor::dtype() const { return dtype_; }
 size_t Tensor::numel() const { return shape_.numel(); }
 
 size_t Tensor::storage_offset() const { return offset_; }
+
+Tensor Tensor::mean() const {
+  if (numel() == 0) {
+    throw std::invalid_argument("mean: empty tensor");
+  }
+  Tensor result = sum();
+  divide_scalar_inplace(result.data(), result.dtype(), numel());
+  return result;
+}
+
+Tensor Tensor::sum() const {
+  Tensor input = contiguous();
+  Tensor result(Shape{}, dtype_, learnable_);
+  dispatch_reduction(input.data(), result.data(), input.numel(), dtype_,
+                     Reduction::Sum);
+  return result;
+}
+
+Tensor Tensor::max() const {
+  Tensor input = contiguous();
+  Tensor result(Shape{}, dtype_, learnable_);
+  dispatch_reduction(input.data(), result.data(), input.numel(), dtype_,
+                     Reduction::Max);
+  return result;
+}
+
+Tensor Tensor::min() const {
+  Tensor input = contiguous();
+  Tensor result(Shape{}, dtype_, learnable_);
+  dispatch_reduction(input.data(), result.data(), input.numel(), dtype_,
+                     Reduction::Min);
+  return result;
+}
 
 void *Tensor::data() {
   return static_cast<char *>(storage_->data()) + offset_ * dtype_size(dtype_);
@@ -414,6 +518,7 @@ void Tensor::log(std::ostream &os) const {
   const size_t elem_size = dtype_size(dtype_);
   const auto *base =
       static_cast<const char *>(storage_->data()) + offset_ * elem_size;
+  const size_t row_width = shape_.rank() == 0 ? 1 : shape_[shape_.rank() - 1];
 
   const auto print_row = [&](auto tag) {
     using T = decltype(tag);
@@ -424,7 +529,7 @@ void Tensor::log(std::ostream &os) const {
       }
       const T value =
           *reinterpret_cast<const T *>(base + storage_idx * elem_size);
-      if (flat > 0 && flat % shape_[shape_.rank() - 1] == 0) {
+      if (flat > 0 && flat % row_width == 0) {
         os << "\n";
       }
       os << std::setw(10) << value << " ";
@@ -453,7 +558,7 @@ void Tensor::log(std::ostream &os) const {
         storage_idx = linear_index(flat, shape_, strides_);
       }
       const bool value = base[storage_idx] != 0;
-      if (flat > 0 && flat % shape_[shape_.rank() - 1] == 0) {
+      if (flat > 0 && flat % row_width == 0) {
         os << "\n  ";
       }
       os << std::setw(10) << (value ? "true" : "false") << " ";

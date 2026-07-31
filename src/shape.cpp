@@ -22,9 +22,10 @@ std::vector<size_t> Shape::to_vector() const { return dims_; }
 Shape Shape::compute_strides(const Shape &dims) {
   std::vector<size_t> strides(dims.rank());
   size_t step = 1;
-  for (int i = dims.rank() - 1; i >= 0; i--) {
-    strides[i] = step;
-    step *= dims[i];
+  for (size_t i = dims.rank(); i > 0; --i) {
+    const size_t dim = i - 1;
+    strides[dim] = step;
+    step *= dims[dim];
   }
   return Shape(strides);
 }

@@ -84,6 +84,21 @@ int main() {
     R.log();
   }
 
+  section("scalar reductions");
+  {
+    Tensor values({1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f, 8.f, 9.f, 10.f, 11.f,
+                   12.f, 13.f, 14.f, 15.f, 16.f},
+                  Shape{2, 2, 2, 2});
+    std::cout << "sum (rank 0):\n";
+    values.sum().log();
+    std::cout << "mean (rank 0):\n";
+    values.mean().log();
+    std::cout << "max (rank 0):\n";
+    values.max().log();
+    std::cout << "min (rank 0):\n";
+    values.min().log();
+  }
+
   std::cout << "\nDone.\n";
   return 0;
 }

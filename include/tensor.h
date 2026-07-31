@@ -8,16 +8,19 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <stdexcept>
+#include <type_traits>
 
 namespace mango {
 
 class Tensor {
 public:
-  Tensor(Shape shape, DType type);
+  Tensor(Shape shape, DType type, bool learnable = false);
 
   template <typename T>
-  Tensor(std::initializer_list<T> data, const Shape &shape);
+  Tensor(std::initializer_list<T> data, const Shape &shape,
+         bool learnable = false);
 
   Shape shape() const;
   Shape strides() const;
@@ -37,7 +40,12 @@ public:
 
   static Tensor zeros(const Shape &shape, DType type = DType::F32);
 
-  template <typename T> static Tensor ones(const Shape &shape);
+  template <typename T>
+  static Tensor ones(const Shape &shape, bool learnable = false);
+  template <typename T>
+  static Tensor empty(const Shape &shape, bool learnable = false);
+  template <typename T>
+  static Tensor randn(const Shape &shape, bool learnable = false);
 
   void transpose(size_t dim1 = 0, size_t dim2 = 1);
 
@@ -53,6 +61,11 @@ public:
     return a.matmul(b);
   }
 
+  Tensor mean() const;
+  Tensor sum() const;
+  Tensor max() const;
+  Tensor min() const;
+
   void log(std::ostream &os = std::cout) const;
 
 private:
@@ -60,11 +73,12 @@ private:
   Shape strides_;
   size_t offset_;
   DType dtype_;
+  bool learnable_;
   std::shared_ptr<Storage> storage_;
 };
 
-template <typename T> Tensor Tensor::ones(const Shape &shape) {
-  Tensor tensor(shape, type_of<T>());
+template <typename T> Tensor Tensor::ones(const Shape &shape, bool learnable) {
+  Tensor tensor(shape, type_of<T>(), learnable);
   T *p = static_cast<T *>(tensor.data());
   const T one = static_cast<T>(1);
   for (size_t i = 0; i < tensor.numel(); ++i) {
@@ -73,9 +87,28 @@ template <typename T> Tensor Tensor::ones(const Shape &shape) {
   return tensor;
 }
 
+template <typename T> Tensor Tensor::empty(const Shape &shape, bool learnable) {
+  return Tensor(shape, type_of<T>(), learnable);
+}
+
+template <typename T> Tensor Tensor::randn(const Shape &shape, bool learnable) {
+  static_assert(std::is_same<T, float>() || std::is_same<T, double>(),
+                "Type must be float32 or float64 for random initialization");
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::normal_distribution<T> dist(T(0), T(1));
+  Tensor t = Tensor::empty<T>(shape, learnable);
+  T *data_ptr = static_cast<T *>(t.data());
+  for (size_t i = 0; i < t.numel(); i++) {
+    data_ptr[i] = dist(gen());
+  }
+  return t;
+}
+
 template <typename T>
-Tensor::Tensor(std::initializer_list<T> data, const Shape &shape)
-    : Tensor(shape, type_of<T>()) {
+Tensor::Tensor(std::initializer_list<T> data, const Shape &shape,
+               bool learnable)
+    : Tensor(shape, type_of<T>(), learnable) {
   if (shape.numel() != data.size()) {
     std::string error_msg = std::format(
         "Tensor shape size mismatch: expected {} elements from shape, "
