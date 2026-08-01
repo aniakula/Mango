@@ -11,7 +11,7 @@ SubBackward::SubBackward(Tensor a, Tensor b) {
 
 void SubBackward::backwardPass(const Tensor &grad_out) {
   parents_[0].accum_grad(grad_out);
-  parents_[1].accum_grad(grad_out.neg());
+  parents_[1].accum_grad(grad_out.negate_nr());
 
   if (parents_[0].grad_fn()) {
     parents_[0].grad_fn()->backwardPass(*parents_[0].grad());

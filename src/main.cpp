@@ -134,8 +134,8 @@ int main() {
               << " epoch: " << epoch + 1 << std::endl;
 
     loss.backward();
-    W -= W.grad()->mult(Tensor({0.02}, Shape{}));
-    b -= b.grad()->mult(Tensor({0.02}, Shape{}));
+    W -= W.grad()->mult_nr(Tensor({0.02}, Shape{}));
+    b -= b.grad()->mult_nr(Tensor({0.02}, Shape{}));
 
     W.zero_grad();
     b.zero_grad();

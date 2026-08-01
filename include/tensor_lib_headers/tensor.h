@@ -55,12 +55,13 @@ public:
   void transpose(size_t dim1 = 0, size_t dim2 = 1);
 
   // Non-recording kernels (no grad_fn_)
-  Tensor add(const Tensor &other) const;
-  Tensor sub(const Tensor &other) const;
-  Tensor mult(const Tensor &other) const;
-  Tensor neg() const;
-  Tensor mm(const Tensor &other) const;
-  Tensor sq() const;
+  Tensor add_nr(const Tensor &other) const;
+  Tensor sub_nr(const Tensor &other) const;
+  Tensor mult_nr(const Tensor &other) const;
+  Tensor negate_nr() const;
+  Tensor matmul_nr(const Tensor &other) const;
+  Tensor square_nr() const;
+  Tensor relu_nr() const;
 
   // Recording ops
   Tensor operator+(const Tensor &other) const;
@@ -81,6 +82,7 @@ public:
   Tensor sum() const;
   Tensor max() const;
   Tensor min() const;
+  Tensor relu() const;
 
   void log(std::ostream &os = std::cout) const;
 

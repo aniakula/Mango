@@ -10,7 +10,7 @@ ReluBackward::ReluBackward(Tensor input) {
 
 void ReluBackward::backwardPass(const Tensor &grad_out) {
   const Tensor &x = parents_[0];
-  Tensor local = grad_out.clone(); 
+  Tensor local = grad_out.clone();
   const size_t n = x.numel();
   switch (x.dtype()) {
   case DType::F32: {

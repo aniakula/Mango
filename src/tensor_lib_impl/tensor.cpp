@@ -4,6 +4,7 @@
 #include "auto_grad_node_headers/mean.h"
 #include "auto_grad_node_headers/mult.h"
 #include "auto_grad_node_headers/node.h"
+#include "auto_grad_node_headers/relu.h"
 #include "auto_grad_node_headers/sq.h"
 #include "auto_grad_node_headers/sub.h"
 #include "auto_grad_node_headers/sum.h"
@@ -13,6 +14,7 @@
 
 #include <cstring>
 #include <iomanip>
+#include <memory>
 #include <stdexcept>
 
 namespace mango {
@@ -239,28 +241,28 @@ void Tensor::transpose(size_t dim1, size_t dim2) {
 
 //---- Non-recording helpers ----
 
-Tensor Tensor::add(const Tensor &other) const {
+Tensor Tensor::add_nr(const Tensor &other) const {
   Tensor out = detail::elementwise_binary(*this, other,
                                           [](auto a, auto b) { return a + b; });
   out.clear_autograd();
   return out;
 }
 
-Tensor Tensor::sub(const Tensor &other) const {
+Tensor Tensor::sub_nr(const Tensor &other) const {
   Tensor out = detail::elementwise_binary(*this, other,
                                           [](auto a, auto b) { return a - b; });
   out.clear_autograd();
   return out;
 }
 
-Tensor Tensor::mult(const Tensor &other) const {
+Tensor Tensor::mult_nr(const Tensor &other) const {
   Tensor out = detail::elementwise_binary(*this, other,
                                           [](auto a, auto b) { return a * b; });
   out.clear_autograd();
   return out;
 }
 
-Tensor Tensor::neg() const {
+Tensor Tensor::negate_nr() const {
   if (dtype_ == DType::B) {
     throw std::invalid_argument("neg: bool tensors are not supported");
   }
@@ -308,18 +310,66 @@ Tensor Tensor::neg() const {
   return out;
 }
 
-Tensor Tensor::mm(const Tensor &other) const {
+Tensor Tensor::matmul_nr(const Tensor &other) const {
   Tensor out = detail::tensorMatMul(*this, other);
   out.clear_autograd();
   return out;
 }
 
-Tensor Tensor::sq() const { return mult(*this); }
+Tensor Tensor::square_nr() const { return mult_nr(*this); }
+
+Tensor Tensor::relu_nr() const {
+  if (dtype_ == DType::B) {
+    throw std::invalid_argument("relu: bool tensors are not supported");
+  }
+
+  Tensor src = contiguous();
+  Tensor out(src.shape(), src.dtype(), /*learnable=*/false);
+  const size_t n = src.numel();
+
+  switch (dtype_) {
+  case DType::F32: {
+    const auto *in = static_cast<const float *>(src.data());
+    auto *dest = static_cast<float *>(out.data());
+    for (size_t i = 0; i < n; ++i) {
+      dest[i] = in[i] > 0 ? in[i] : 0;
+    }
+    break;
+  }
+  case DType::F64: {
+    const auto *in = static_cast<const double *>(src.data());
+    auto *dest = static_cast<double *>(out.data());
+    for (size_t i = 0; i < n; ++i) {
+      dest[i] = in[i] > 0 ? in[i] : 0;
+    }
+    break;
+  }
+  case DType::I32: {
+    const auto *in = static_cast<const int32_t *>(src.data());
+    auto *dest = static_cast<int32_t *>(out.data());
+    for (size_t i = 0; i < n; ++i) {
+      dest[i] = in[i] > 0 ? in[i] : 0;
+    }
+    break;
+  }
+  case DType::I64: {
+    const auto *in = static_cast<const int64_t *>(src.data());
+    auto *dest = static_cast<int64_t *>(out.data());
+    for (size_t i = 0; i < n; ++i) {
+      dest[i] = in[i] > 0 ? in[i] : 0;
+    }
+    break;
+  }
+  case DType::B:
+    break;
+  }
+  return out;
+}
 
 //---- Recording ops ----
 
 Tensor Tensor::operator+(const Tensor &other) const {
-  Tensor out = add(other);
+  Tensor out = add_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<AddBackward>(*this, other);
   }
@@ -327,7 +377,7 @@ Tensor Tensor::operator+(const Tensor &other) const {
 }
 
 Tensor Tensor::operator-() const {
-  Tensor out = neg();
+  Tensor out = negate_nr();
   if (requires_grad()) {
     Tensor zero = Tensor::zeros(shape_, dtype_);
     out.grad_fn_ = std::make_shared<SubBackward>(std::move(zero), *this);
@@ -336,7 +386,7 @@ Tensor Tensor::operator-() const {
 }
 
 Tensor Tensor::operator-(const Tensor &other) const {
-  Tensor out = sub(other);
+  Tensor out = sub_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<SubBackward>(*this, other);
   }
@@ -344,7 +394,7 @@ Tensor Tensor::operator-(const Tensor &other) const {
 }
 
 Tensor Tensor::operator*(const Tensor &other) const {
-  Tensor out = mult(other);
+  Tensor out = mult_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<MulBackward>(*this, other);
   }
@@ -370,7 +420,7 @@ Tensor &Tensor::operator*=(const Tensor &other) {
 }
 
 Tensor Tensor::matmul(const Tensor &other) const {
-  Tensor out = mm(other);
+  Tensor out = matmul_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<MatMulBackward>(*this, other);
   }
@@ -378,9 +428,17 @@ Tensor Tensor::matmul(const Tensor &other) const {
 }
 
 Tensor Tensor::square() const {
-  Tensor out = sq();
+  Tensor out = square_nr();
   if (requires_grad()) {
     out.grad_fn_ = std::make_shared<SquareBackward>(*this);
+  }
+  return out;
+}
+
+Tensor Tensor::relu() const {
+  Tensor out = relu_nr();
+  if (requires_grad()) {
+    out.grad_fn_ = std::make_shared<ReluBackward>(*this);
   }
   return out;
 }
