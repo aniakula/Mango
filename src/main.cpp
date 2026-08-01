@@ -1,6 +1,6 @@
 #include "tensor_lib_headers/shape.h"
 #include "tensor_lib_headers/tensor.h"
-
+#include "tensor_lib_headers/types.h"
 #include <cstddef>
 #include <iostream>
 
@@ -134,7 +134,6 @@ int main() {
               << " epoch: " << epoch + 1 << std::endl;
 
     loss.backward();
-    // In-place SGD keeps the same learnable tensors (and shared grad buffers).
     W -= W.grad()->mult(Tensor({0.02}, Shape{}));
     b -= b.grad()->mult(Tensor({0.02}, Shape{}));
 
@@ -144,6 +143,12 @@ int main() {
 
   y_hat = forward(x, W, b);
   y_hat.log();
+  W.log();
+  b.log();
+
+  W = W.to(DType::I32);
+  b = b.to(DType::I32);
+
   W.log();
   b.log();
 

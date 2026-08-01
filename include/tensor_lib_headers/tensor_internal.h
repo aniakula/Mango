@@ -34,6 +34,40 @@ void divide_scalar_inplace(void *data, DType dtype, size_t divisor);
 
 Tensor tensorMatMul(Tensor A, Tensor B);
 
+template <typename F, typename T>
+void apply_cast(Tensor &src, Tensor &new_tensor) {
+  F *src_ptr = static_cast<F *>(src.data());
+  T *to_ptr = static_cast<T *>(new_tensor.data());
+  for (size_t idx = 0; idx < src.numel(); idx++) {
+    to_ptr[idx] = static_cast<T>(*src_ptr);
+  }
+}
+
+template <typename T> void tensor_cast(Tensor &src, Tensor &new_tensor) {
+  switch (src.dtype()) {
+  case DType::F32: {
+    apply_cast<float, T>(src, new_tensor);
+    break;
+  }
+  case DType::F64: {
+    apply_cast<double, T>(src, new_tensor);
+    break;
+  }
+  case DType::I32: {
+    apply_cast<int32_t, T>(src, new_tensor);
+    break;
+  }
+  case DType::I64: {
+    apply_cast<int64_t, T>(src, new_tensor);
+    break;
+  }
+  case DType::B: {
+    apply_cast<bool, T>(src, new_tensor);
+    break;
+  }
+  }
+}
+
 template <typename T, typename Op>
 void apply_Op(void *lhs, const void *rhs, size_t n, Op op) {
   T *a = static_cast<T *>(lhs);

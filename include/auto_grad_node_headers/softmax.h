@@ -8,7 +8,6 @@ namespace mango {
 
 class SoftmaxBackward : public Node {
 public:
-  // Saves the softmax output used in the Jacobian-vector product.
   explicit SoftmaxBackward(Tensor softmax_out);
 
   void backwardPass(const Tensor &grad_out) override;

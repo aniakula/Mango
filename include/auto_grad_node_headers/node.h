@@ -12,7 +12,6 @@ public:
   virtual ~Node() = default;
   virtual void backwardPass(const Tensor &grad_out) = 0;
   virtual std::string function() const = 0;
-
   const std::vector<Tensor> &parents() const { return parents_; }
 
 protected:

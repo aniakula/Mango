@@ -10,14 +10,12 @@ ReluBackward::ReluBackward(Tensor input) {
 
 void ReluBackward::backwardPass(const Tensor &grad_out) {
   const Tensor &x = parents_[0];
-  Tensor local = grad_out.clone(); // or zeros + fill
+  Tensor local = grad_out.clone(); 
   const size_t n = x.numel();
-  // make x / grad_out contiguous first if needed
   switch (x.dtype()) {
   case DType::F32: {
     const float *xp = static_cast<const float *>(x.data());
     float *gp = static_cast<float *>(local.data());
-    // if local came from grad_out.clone(), gp already holds grad_out
     for (size_t i = 0; i < n; ++i) {
       if (!(xp[i] > 0.f))
         gp[i] = 0.f;
@@ -33,7 +31,6 @@ void ReluBackward::backwardPass(const Tensor &grad_out) {
     }
     break;
   }
-  // I32 / I64 similarly; B usually unsupported for ReLU
   default:
     throw std::invalid_argument("relu backward: unsupported dtype");
   }

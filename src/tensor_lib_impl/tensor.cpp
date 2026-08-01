@@ -7,6 +7,7 @@
 #include "auto_grad_node_headers/sq.h"
 #include "auto_grad_node_headers/sub.h"
 #include "auto_grad_node_headers/sum.h"
+#include "tensor_lib_headers/shape.h"
 #include "tensor_lib_headers/tensor_internal.h"
 #include "tensor_lib_headers/types.h"
 
@@ -45,6 +46,36 @@ Shape Tensor::shape() const { return shape_; }
 Shape Tensor::strides() const { return strides_; }
 
 DType Tensor::dtype() const { return dtype_; }
+
+Tensor Tensor::to(DType &&new_type) {
+  switch (new_type) {
+  case DType::F32: {
+    Tensor new_tensor(this->shape(), DType::F32, learnable_);
+    detail::tensor_cast<float>(*this, new_tensor);
+    return new_tensor;
+  }
+  case DType::F64: {
+    Tensor new_tensor(this->shape(), DType::F64, learnable_);
+    detail::tensor_cast<double>(*this, new_tensor);
+    return new_tensor;
+  }
+  case DType::I32: {
+    Tensor new_tensor(this->shape(), DType::I32);
+    detail::tensor_cast<int32_t>(*this, new_tensor);
+    return new_tensor;
+  }
+  case DType::I64: {
+    Tensor new_tensor(this->shape(), DType::I64);
+    detail::tensor_cast<int64_t>(*this, new_tensor);
+    return new_tensor;
+  }
+  case DType::B: {
+    Tensor new_tensor(this->shape(), DType::B);
+    detail::tensor_cast<bool>(*this, new_tensor);
+    return new_tensor;
+  }
+  }
+}
 
 size_t Tensor::numel() const { return shape_.numel(); }
 

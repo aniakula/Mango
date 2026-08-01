@@ -24,6 +24,7 @@ public:
   Shape shape() const;
   Shape strides() const;
   DType dtype() const;
+  Tensor to(DType &&new_type);
   size_t numel() const;
   size_t storage_offset() const;
   Node *grad_fn();
