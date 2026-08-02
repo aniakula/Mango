@@ -8,6 +8,7 @@
 #include "auto_grad_node_headers/sq.h"
 #include "auto_grad_node_headers/sub.h"
 #include "auto_grad_node_headers/sum.h"
+#include "auto_grad_node_headers/transpose.h"
 #include "tensor_lib_headers/shape.h"
 #include "tensor_lib_headers/tensor_internal.h"
 #include "tensor_lib_headers/types.h"
@@ -227,7 +228,7 @@ Tensor Tensor::zeros(const Shape &shape, DType type) {
   return tensor;
 }
 
-void Tensor::transpose(size_t dim1, size_t dim2) {
+void Tensor::transpose_inplace(size_t dim1, size_t dim2) {
   if (dim1 >= shape_.rank() || dim2 >= shape_.rank()) {
     throw std::out_of_range("transpose: dimension out of range");
   }
@@ -240,6 +241,11 @@ void Tensor::transpose(size_t dim1, size_t dim2) {
 }
 
 //---- Non-recording helpers ----
+Tensor Tensor::transpose_nr(size_t dim1, size_t dim2) const {
+  Tensor clone = this->clone();
+  clone.transpose_inplace();
+  return clone;
+}
 
 Tensor Tensor::add_nr(const Tensor &other) const {
   Tensor out = detail::elementwise_binary(*this, other,
@@ -417,6 +423,14 @@ Tensor &Tensor::operator*=(const Tensor &other) {
   detail::elementwise_inplace(*this, other,
                               [](auto a, auto b) { return a * b; });
   return *this;
+}
+
+Tensor Tensor::transpose(const Tensor &other, size_t dim1, size_t dim2) {
+  Tensor out = other.transpose_nr(dim1, dim2);
+  if (requires_grad() || other.requires_grad()) {
+    out.grad_fn_ = std::make_shared<TransposeBackward>(*this, other);
+  }
+  return out;
 }
 
 Tensor Tensor::matmul(const Tensor &other) const {

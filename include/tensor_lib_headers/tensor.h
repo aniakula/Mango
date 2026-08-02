@@ -52,9 +52,10 @@ public:
   template <typename T>
   static Tensor randn(const Shape &shape, bool learnable = false);
 
-  void transpose(size_t dim1 = 0, size_t dim2 = 1);
-
   // Non-recording kernels (no grad_fn_)
+  void transpose_inplace(size_t dim1 = 0, size_t dim2 = 1);
+
+  Tensor transpose_nr(size_t dim1 = 0, size_t dim2 = 1) const;
   Tensor add_nr(const Tensor &other) const;
   Tensor sub_nr(const Tensor &other) const;
   Tensor mult_nr(const Tensor &other) const;
@@ -78,6 +79,7 @@ public:
     return a.matmul(b);
   }
 
+  Tensor transpose(const Tensor &other, size_t dim1 = 0, size_t dim2 = 1);
   Tensor mean() const;
   Tensor sum() const;
   Tensor max() const;

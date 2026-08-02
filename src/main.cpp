@@ -63,8 +63,8 @@ int main() {
   // std::cout << "matrix (2, 4) with 0..7:\n";
   // m.log();
 
-  // m.transpose(0, 1);
-  // std::cout << "after transpose(0, 1) — non-contiguous layout:\n";
+  // m.transpose_inplace(0, 1);
+  // std::cout << "after transpose_inplace(0, 1) — non-contiguous layout:\n";
   // m.log();
 
   // section("reshape");

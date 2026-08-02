@@ -8,8 +8,8 @@ MulBackward::MulBackward(Tensor a, Tensor b) {
 }
 
 void MulBackward::backwardPass(const Tensor &grad_out) {
-  parents_[0].accum_grad(grad_out.mult(parents_[1]));
-  parents_[1].accum_grad(grad_out.mult(parents_[0]));
+  parents_[0].accum_grad(grad_out.mult_nr(parents_[1]));
+  parents_[1].accum_grad(grad_out.mult_nr(parents_[0]));
   if (parents_[0].grad_fn()) {
     parents_[0].grad_fn()->backwardPass(*parents_[0].grad());
   }
