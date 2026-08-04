@@ -59,6 +59,7 @@ public:
   Tensor add_nr(const Tensor &other) const;
   Tensor sub_nr(const Tensor &other) const;
   Tensor mult_nr(const Tensor &other) const;
+  Tensor sum_nr() const;
   Tensor negate_nr() const;
   Tensor matmul_nr(const Tensor &other) const;
   Tensor square_nr() const;

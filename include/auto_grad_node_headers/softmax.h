@@ -8,10 +8,14 @@ namespace mango {
 
 class SoftmaxBackward : public Node {
 public:
-  explicit SoftmaxBackward(Tensor softmax_out);
+  // input receives the gradient; softmax_out (y) is saved for the Jacobian.
+  SoftmaxBackward(Tensor input, Tensor softmax_out);
 
   void backwardPass(const Tensor &grad_out) override;
   std::string function() const override;
+
+private:
+  Tensor softmax_out_;
 };
 
 } // namespace mango

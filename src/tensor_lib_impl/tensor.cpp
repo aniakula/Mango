@@ -88,7 +88,7 @@ Tensor Tensor::mean() const {
   if (numel() == 0) {
     throw std::invalid_argument("mean: empty tensor");
   }
-  Tensor result = sum();
+  Tensor result = sum_nr();
   detail::divide_scalar_inplace(result.data(), result.dtype(), numel());
   if (requires_grad()) {
     result.grad_fn_ = std::make_shared<MeanBackward>(*this);
@@ -96,7 +96,7 @@ Tensor Tensor::mean() const {
   return result;
 }
 
-Tensor Tensor::sum() const {
+Tensor Tensor::sum_nr() const {
   Tensor input = contiguous();
   Tensor result(Shape{}, dtype_, /*learnable=*/false);
   detail::dispatch_reduction(input.data(), result.data(), input.numel(), dtype_,
@@ -203,7 +203,7 @@ void Tensor::accum_grad(const Tensor &grad_out) {
   // summing the upstream grad back down to this tensor's shape.
   if (detail::is_scalar_like(*grad_tensor_) &&
       !detail::is_scalar_like(grad_out)) {
-    *grad_tensor_ += grad_out.sum();
+    *grad_tensor_ += grad_out.sum_nr();
     return;
   }
   *grad_tensor_ += grad_out;
@@ -429,6 +429,14 @@ Tensor Tensor::transpose(const Tensor &other, size_t dim1, size_t dim2) {
   Tensor out = other.transpose_nr(dim1, dim2);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<TransposeBackward>(*this, other);
+  }
+  return out;
+}
+
+Tensor Tensor::sum() const {
+  Tensor out = sum_nr();
+  if (requires_grad()) {
+    out.grad_fn_ = std::make_shared<SumBackward>(*this);
   }
   return out;
 }
