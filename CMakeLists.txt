@@ -28,6 +28,22 @@ target_include_directories(mango_lib PUBLIC include)
 add_executable(mango src/main.cpp)
 target_link_libraries(mango PRIVATE mango_lib)
 
+# Contiguous float elementwise kernels via Apple vDSP (toggle manually).
+# Defaults ON on Apple, OFF elsewhere. Force OFF if requested on non-Apple.
+option(MANGO_ENABLE_VDSP
+       "Use Apple vDSP for contiguous F32/F64 elementwise ops"
+       ${APPLE})
+if(MANGO_ENABLE_VDSP AND NOT APPLE)
+  message(WARNING "MANGO_ENABLE_VDSP requires Apple Accelerate; disabling")
+  set(MANGO_ENABLE_VDSP OFF CACHE BOOL
+      "Use Apple vDSP for contiguous F32/F64 elementwise ops" FORCE)
+endif()
+if(MANGO_ENABLE_VDSP)
+  target_compile_definitions(mango_lib PUBLIC MANGO_ENABLE_VDSP=1)
+else()
+  target_compile_definitions(mango_lib PUBLIC MANGO_ENABLE_VDSP=0)
+endif()
+
 if(APPLE)
   target_compile_definitions(mango_lib PRIVATE ACCELERATE_NEW_LAPACK)
   target_link_libraries(mango_lib PUBLIC "-framework Accelerate")

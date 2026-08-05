@@ -126,8 +126,7 @@ TEST(TensorReshape, ChangesMetadataInPlaceAndRejectsInvalidShapes) {
   expect_values<double>(tensor, {1, 2, 3, 4});
   EXPECT_THROW(tensor.reshape(Shape{5}), std::invalid_argument);
 
-  Tensor transposed =
-      Tensor({1.0, 2.0, 3.0, 4.0}, Shape{2, 2}).transpose_nr();
+  Tensor transposed = Tensor({1.0, 2.0, 3.0, 4.0}, Shape{2, 2}).transpose_nr();
   EXPECT_THROW(transposed.reshape(Shape{4}), std::invalid_argument);
 }
 
@@ -155,8 +154,7 @@ TEST(TensorTranspose, HandlesArbitraryDimensionsAndContiguousMaterialization) {
   Tensor transposed = tensor.transpose_nr(0, 2);
 
   expect_shape(transposed, {2, 2, 2});
-  EXPECT_EQ(transposed.strides().to_vector(),
-            (std::vector<size_t>{1, 2, 4}));
+  EXPECT_EQ(transposed.strides().to_vector(), (std::vector<size_t>{1, 2, 4}));
   EXPECT_FALSE(transposed.is_contiguous());
   expect_values<int>(transposed, {1, 5, 3, 7, 2, 6, 4, 8});
 

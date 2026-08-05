@@ -14,6 +14,41 @@ cmake --build build -j
 ./build/mango
 ```
 
+Optional vDSP elementwise acceleration (Apple only; default ON on macOS):
+
+```bash
+cmake -S . -B build -DMANGO_ENABLE_VDSP=ON    # contiguous F32/F64 add/sub/mul/neg via vDSP
+cmake -S . -B build -DMANGO_ENABLE_VDSP=OFF   # scalar elementwise only
+```
+
+When enabled, `add_nr` / `sub_nr` / `mult_nr` / `negate_nr` (and thus recording `+`, `-`, `*`, unary `-`) use vDSP for floating dtypes, including scalar↔vector broadcast. Inputs are materialized with `contiguous()` inside the kernel; results are always contiguous.
+
+#### Benchmark: memory-bound vs compute-bound
+
+`main.cpp` prints two tables. The first times single elementwise ops
+(`add`/`sub`/`mul`/`negate`) and shows only ~1.1–1.2× from SIMD — these ops are
+**memory-bound**: each one moves ~3 arrays through DRAM but does ≤1 FLOP per
+element, so DRAM bandwidth is the wall and wider math units don't help.
+
+The second table (`fused_poly_loop` vs `fused_poly_simd`) evaluates a
+degree-`P` polynomial per element with Horner's rule. Memory traffic is fixed
+(read `x`, write `out` = 8 B/elem) while the FMA count — and thus **arithmetic
+intensity** (FLOP/byte) — grows with `P`. As intensity rises the kernel becomes
+**compute-bound** and the SIMD path pulls away, reaching ~15× on Apple Silicon:
+
+```text
+operation                loop ms     simd ms    speedup  flop/byte
+poly deg 1                 4.778       1.762      2.71x        0.25
+poly deg 4                18.938       1.469     12.89x        1.00
+poly deg 16               57.936       4.001     14.48x        4.00
+poly deg 64              362.996      22.869     15.87x       16.00
+```
+
+The scalar loop uses `#pragma clang loop vectorize(disable)` so it stays a true
+one-lane loop; the SIMD path uses `vDSP_vpoly` (or an auto-vectorized loop when
+`MANGO_ENABLE_VDSP=OFF`). Takeaway: SIMD only pays off once you feed it enough
+math per byte to escape the bandwidth roofline.
+
 ### Tests
 
 ```bash
@@ -108,7 +143,7 @@ Tensor raw = a.matmul_nr(b);  // same math, no graph
 - propagate() // accum_grad + fire parent only when all consumers done
 - backwardPass(grad_out) // op-specific local gradient
 
-**Consumer counting (DAG-safe):** If the same intermediate is used twice, its node waits until both paths deliver gradients before running `backwardPass`. Leaves just accumulate. Rebuild the graph each training step (one `backward()` per forward); counters are not reset for a second backward on the same graph.
+**Consumer counting:** If the same intermediate is used twice, its node waits until both paths deliver gradients before running `backwardPass`. Leaves just accumulate. Must rebuild the graph each training step (one `backward()` per forward).
 
 ### Example graph
 

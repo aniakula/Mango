@@ -275,4 +275,336 @@ Tensor tensorMatMul(Tensor A, Tensor B) {
   return C;
 }
 
+namespace {
+
+bool is_float_dtype(DType dtype) {
+  return dtype == DType::F32 || dtype == DType::F64;
+}
+
+#if defined(__clang__)
+#define MANGO_LOOP_SCALAR                                                      \
+  _Pragma("clang loop vectorize(disable) interleave(disable)")
+#define MANGO_LOOP_VECTOR                                                      \
+  _Pragma("clang loop vectorize(enable) interleave(enable)")
+#elif defined(__GNUC__)
+#define MANGO_LOOP_SCALAR _Pragma("GCC optimize(\"no-tree-vectorize\")")
+#define MANGO_LOOP_VECTOR
+#else
+#define MANGO_LOOP_SCALAR
+#define MANGO_LOOP_VECTOR
+#endif
+
+void check_poly_input(const Tensor &x, const std::vector<float> &coeffs) {
+  if (x.dtype() != DType::F32) {
+    throw std::invalid_argument("fused_poly: only F32 is supported");
+  }
+  if (coeffs.empty()) {
+    throw std::invalid_argument("fused_poly: need at least one coefficient");
+  }
+}
+
+Shape simd_out_shape(const Tensor &a, const Tensor &b) {
+  if (is_scalar_like(a) && is_scalar_like(b)) {
+    return a.shape();
+  }
+  if (is_scalar_like(a) && !is_scalar_like(b)) {
+    return b.shape();
+  }
+  if (is_scalar_like(b) && !is_scalar_like(a)) {
+    return a.shape();
+  }
+  assert_same_shape(a.shape(), b.shape());
+  return a.shape();
+}
+
+} // namespace
+
+Tensor fused_poly_loop(const Tensor &x_in, const std::vector<float> &coeffs) {
+  check_poly_input(x_in, coeffs);
+  const Tensor x = x_in.contiguous();
+  Tensor out(x.shape(), x.dtype());
+
+  const size_t n = x.numel();
+  const size_t degree = coeffs.size() - 1;
+  const float *in = static_cast<const float *>(x.data());
+  float *dst = static_cast<float *>(out.data());
+  const float *c = coeffs.data();
+
+  MANGO_LOOP_SCALAR
+  for (size_t i = 0; i < n; ++i) {
+    const float xi = in[i];
+    float acc = c[0];
+    for (size_t k = 1; k <= degree; ++k) {
+      acc = acc * xi + c[k]; // fused multiply-add
+    }
+    dst[i] = acc;
+  }
+  return out;
+}
+
+#if MANGO_ENABLE_VDSP
+
+Tensor fused_poly_simd(const Tensor &x_in, const std::vector<float> &coeffs) {
+  check_poly_input(x_in, coeffs);
+  const Tensor x = x_in.contiguous();
+  Tensor out(x.shape(), x.dtype());
+
+  const vDSP_Length n = static_cast<vDSP_Length>(x.numel());
+  const vDSP_Length degree = static_cast<vDSP_Length>(coeffs.size() - 1);
+  vDSP_vpoly(coeffs.data(), 1, static_cast<const float *>(x.data()), 1,
+             static_cast<float *>(out.data()), 1, n, degree);
+  return out;
+}
+
+#else // !MANGO_ENABLE_VDSP
+
+// No vDSP: same Horner loop, but let clang auto-vectorize it (many lanes).
+Tensor fused_poly_simd(const Tensor &x_in, const std::vector<float> &coeffs) {
+  check_poly_input(x_in, coeffs);
+  const Tensor x = x_in.contiguous();
+  Tensor out(x.shape(), x.dtype());
+
+  const size_t n = x.numel();
+  const size_t degree = coeffs.size() - 1;
+  const float *in = static_cast<const float *>(x.data());
+  float *dst = static_cast<float *>(out.data());
+  const float *c = coeffs.data();
+
+  MANGO_LOOP_VECTOR
+  for (size_t i = 0; i < n; ++i) {
+    const float xi = in[i];
+    float acc = c[0];
+    for (size_t k = 1; k <= degree; ++k) {
+      acc = acc * xi + c[k];
+    }
+    dst[i] = acc;
+  }
+  return out;
+}
+
+#endif // MANGO_ENABLE_VDSP
+
+#if MANGO_ENABLE_VDSP
+
+namespace {
+
+enum class SimdBinary { Add, Sub, Mul };
+
+Tensor simd_binary_vdsp(const Tensor &a_in, const Tensor &b_in, SimdBinary op) {
+  assert_same_type(a_in.dtype(), b_in.dtype());
+  if (!is_float_dtype(a_in.dtype())) {
+    throw std::invalid_argument(
+        "simd binary: only floating-point dtypes are supported");
+  }
+
+  const Tensor a = a_in.contiguous();
+  const Tensor b = b_in.contiguous();
+  const Shape out_shape = simd_out_shape(a, b);
+  Tensor result(out_shape, a.dtype());
+  const vDSP_Length n = static_cast<vDSP_Length>(result.numel());
+
+  const bool a_scalar = is_scalar_like(a);
+  const bool b_scalar = is_scalar_like(b);
+  // Two scalars (any rank-0 / {1} shapes): use the dense vector path with n=1.
+  const bool use_scalar_rhs = b_scalar && !a_scalar;
+  const bool use_scalar_lhs = a_scalar && !b_scalar;
+
+  switch (a.dtype()) {
+  case DType::F32: {
+    const float *ap = static_cast<const float *>(a.data());
+    const float *bp = static_cast<const float *>(b.data());
+    float *out = static_cast<float *>(result.data());
+
+    if (use_scalar_lhs) {
+      const float s = *ap;
+      switch (op) {
+      case SimdBinary::Add:
+        vDSP_vsadd(bp, 1, &s, out, 1, n);
+        break;
+      case SimdBinary::Sub: {
+        // s - b
+        vDSP_vneg(bp, 1, out, 1, n);
+        vDSP_vsadd(out, 1, &s, out, 1, n);
+        break;
+      }
+      case SimdBinary::Mul:
+        vDSP_vsmul(bp, 1, &s, out, 1, n);
+        break;
+      }
+    } else if (use_scalar_rhs) {
+      const float s = *bp;
+      switch (op) {
+      case SimdBinary::Add:
+        vDSP_vsadd(ap, 1, &s, out, 1, n);
+        break;
+      case SimdBinary::Sub: {
+        const float neg = -s;
+        vDSP_vsadd(ap, 1, &neg, out, 1, n);
+        break;
+      }
+      case SimdBinary::Mul:
+        vDSP_vsmul(ap, 1, &s, out, 1, n);
+        break;
+      }
+    } else {
+      switch (op) {
+      case SimdBinary::Add:
+        vDSP_vadd(ap, 1, bp, 1, out, 1, n);
+        break;
+      case SimdBinary::Sub:
+        vDSP_vsub(bp, 1, ap, 1, out, 1, n); // out = a - b
+        break;
+      case SimdBinary::Mul:
+        vDSP_vmul(ap, 1, bp, 1, out, 1, n);
+        break;
+      }
+    }
+    break;
+  }
+  case DType::F64: {
+    const double *ap = static_cast<const double *>(a.data());
+    const double *bp = static_cast<const double *>(b.data());
+    double *out = static_cast<double *>(result.data());
+
+    if (use_scalar_lhs) {
+      const double s = *ap;
+      switch (op) {
+      case SimdBinary::Add:
+        vDSP_vsaddD(bp, 1, &s, out, 1, n);
+        break;
+      case SimdBinary::Sub: {
+        vDSP_vnegD(bp, 1, out, 1, n);
+        vDSP_vsaddD(out, 1, &s, out, 1, n);
+        break;
+      }
+      case SimdBinary::Mul:
+        vDSP_vsmulD(bp, 1, &s, out, 1, n);
+        break;
+      }
+    } else if (use_scalar_rhs) {
+      const double s = *bp;
+      switch (op) {
+      case SimdBinary::Add:
+        vDSP_vsaddD(ap, 1, &s, out, 1, n);
+        break;
+      case SimdBinary::Sub: {
+        const double neg = -s;
+        vDSP_vsaddD(ap, 1, &neg, out, 1, n);
+        break;
+      }
+      case SimdBinary::Mul:
+        vDSP_vsmulD(ap, 1, &s, out, 1, n);
+        break;
+      }
+    } else {
+      switch (op) {
+      case SimdBinary::Add:
+        vDSP_vaddD(ap, 1, bp, 1, out, 1, n);
+        break;
+      case SimdBinary::Sub:
+        vDSP_vsubD(bp, 1, ap, 1, out, 1, n); // out = a - b
+        break;
+      case SimdBinary::Mul:
+        vDSP_vmulD(ap, 1, bp, 1, out, 1, n);
+        break;
+      }
+    }
+    break;
+  }
+  default:
+    throw std::invalid_argument(
+        "simd binary: only floating-point dtypes are supported");
+  }
+
+  return result;
+}
+
+} // namespace
+
+Tensor simd_add(const Tensor &a, const Tensor &b) {
+  return simd_binary_vdsp(a, b, SimdBinary::Add);
+}
+
+Tensor simd_sub(const Tensor &a, const Tensor &b) {
+  return simd_binary_vdsp(a, b, SimdBinary::Sub);
+}
+
+Tensor simd_mult(const Tensor &a, const Tensor &b) {
+  return simd_binary_vdsp(a, b, SimdBinary::Mul);
+}
+
+Tensor simd_negate(const Tensor &a) {
+  if (!is_float_dtype(a.dtype())) {
+    throw std::invalid_argument(
+        "simd_negate: only floating-point dtypes are supported");
+  }
+  const Tensor src = a.contiguous();
+  Tensor result(src.shape(), src.dtype());
+  const vDSP_Length n = static_cast<vDSP_Length>(src.numel());
+  switch (src.dtype()) {
+  case DType::F32:
+    vDSP_vneg(static_cast<const float *>(src.data()), 1,
+              static_cast<float *>(result.data()), 1, n);
+    break;
+  case DType::F64:
+    vDSP_vnegD(static_cast<const double *>(src.data()), 1,
+               static_cast<double *>(result.data()), 1, n);
+    break;
+  default:
+    throw std::invalid_argument(
+        "simd_negate: only floating-point dtypes are supported");
+  }
+  return result;
+}
+
+#else // !MANGO_ENABLE_VDSP
+
+Tensor simd_add(const Tensor &a, const Tensor &b) {
+  const Tensor a_c = a.contiguous();
+  const Tensor b_c = b.contiguous();
+  return elementwise_binary(a_c, b_c, [](auto x, auto y) { return x + y; });
+}
+
+Tensor simd_sub(const Tensor &a, const Tensor &b) {
+  const Tensor a_c = a.contiguous();
+  const Tensor b_c = b.contiguous();
+  return elementwise_binary(a_c, b_c, [](auto x, auto y) { return x - y; });
+}
+
+Tensor simd_mult(const Tensor &a, const Tensor &b) {
+  const Tensor a_c = a.contiguous();
+  const Tensor b_c = b.contiguous();
+  return elementwise_binary(a_c, b_c, [](auto x, auto y) { return x * y; });
+}
+
+Tensor simd_negate(const Tensor &a) {
+  const Tensor src = a.contiguous();
+  Tensor result(src.shape(), src.dtype());
+  const size_t n = src.numel();
+  switch (src.dtype()) {
+  case DType::F32: {
+    const float *in = static_cast<const float *>(src.data());
+    float *out = static_cast<float *>(result.data());
+    for (size_t i = 0; i < n; ++i) {
+      out[i] = -in[i];
+    }
+    break;
+  }
+  case DType::F64: {
+    const double *in = static_cast<const double *>(src.data());
+    double *out = static_cast<double *>(result.data());
+    for (size_t i = 0; i < n; ++i) {
+      out[i] = -in[i];
+    }
+    break;
+  }
+  default:
+    throw std::invalid_argument(
+        "simd_negate: only floating-point dtypes are supported");
+  }
+  return result;
+}
+
+#endif // MANGO_ENABLE_VDSP
+
 } // namespace mango::detail

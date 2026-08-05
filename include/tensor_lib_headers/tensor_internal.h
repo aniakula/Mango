@@ -8,6 +8,11 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#ifndef MANGO_ENABLE_VDSP
+#define MANGO_ENABLE_VDSP 0
+#endif
 
 namespace mango::detail {
 
@@ -33,6 +38,29 @@ void dispatch_reduction(const void *input, void *output, size_t n, DType dtype,
 void divide_scalar_inplace(void *data, DType dtype, size_t divisor);
 
 Tensor tensorMatMul(Tensor A, Tensor B);
+
+// Float elementwise kernels. Inputs are materialized with contiguous() inside.
+// Supports same-shape and scalar↔vector broadcast. Uses vDSP when
+// MANGO_ENABLE_VDSP=1; otherwise falls back to the scalar path.
+Tensor simd_add(const Tensor &a, const Tensor &b);
+Tensor simd_sub(const Tensor &a, const Tensor &b);
+Tensor simd_mult(const Tensor &a, const Tensor &b);
+Tensor simd_negate(const Tensor &a);
+
+// Fused polynomial evaluation: out[i] = c[0]*x[i]^P + c[1]*x[i]^(P-1) + ... +
+// c[P], evaluated with Horner's rule (P fused multiply-adds per element).
+// Both variants read x once and write out once, so memory traffic is fixed at
+// 2 floats/elem regardless of P. Increasing P (coeffs.size()-1) therefore
+// raises arithmetic intensity (FLOPs per byte) without touching memory traffic
+// -- the knob used to move an op from memory-bound to compute-bound.
+//
+// fused_poly_loop  : genuinely scalar loop (vectorization disabled) -> 1 lane.
+// fused_poly_simd  : vDSP_vpoly when MANGO_ENABLE_VDSP=1, else a vectorized
+//                    loop -> many lanes.
+Tensor fused_poly_loop(const Tensor &x, const std::vector<float> &coeffs);
+Tensor fused_poly_simd(const Tensor &x, const std::vector<float> &coeffs);
+
+constexpr bool vdsp_enabled() { return MANGO_ENABLE_VDSP != 0; }
 
 template <typename F, typename T>
 void apply_cast(Tensor &src, Tensor &new_tensor) {

@@ -259,6 +259,12 @@ Tensor Tensor::transpose_nr(size_t dim1, size_t dim2) const {
 }
 
 Tensor Tensor::add_nr(const Tensor &other) const {
+  if (detail::vdsp_enabled() &&
+      (dtype_ == DType::F32 || dtype_ == DType::F64)) {
+    Tensor out = detail::simd_add(*this, other);
+    out.clear_autograd();
+    return out;
+  }
   Tensor out = detail::elementwise_binary(*this, other,
                                           [](auto a, auto b) { return a + b; });
   out.clear_autograd();
@@ -266,6 +272,12 @@ Tensor Tensor::add_nr(const Tensor &other) const {
 }
 
 Tensor Tensor::sub_nr(const Tensor &other) const {
+  if (detail::vdsp_enabled() &&
+      (dtype_ == DType::F32 || dtype_ == DType::F64)) {
+    Tensor out = detail::simd_sub(*this, other);
+    out.clear_autograd();
+    return out;
+  }
   Tensor out = detail::elementwise_binary(*this, other,
                                           [](auto a, auto b) { return a - b; });
   out.clear_autograd();
@@ -273,6 +285,12 @@ Tensor Tensor::sub_nr(const Tensor &other) const {
 }
 
 Tensor Tensor::mult_nr(const Tensor &other) const {
+  if (detail::vdsp_enabled() &&
+      (dtype_ == DType::F32 || dtype_ == DType::F64)) {
+    Tensor out = detail::simd_mult(*this, other);
+    out.clear_autograd();
+    return out;
+  }
   Tensor out = detail::elementwise_binary(*this, other,
                                           [](auto a, auto b) { return a * b; });
   out.clear_autograd();
@@ -282,6 +300,11 @@ Tensor Tensor::mult_nr(const Tensor &other) const {
 Tensor Tensor::negate_nr() const {
   if (dtype_ == DType::B) {
     throw std::invalid_argument("neg: bool tensors are not supported");
+  }
+
+  if (detail::vdsp_enabled() &&
+      (dtype_ == DType::F32 || dtype_ == DType::F64)) {
+    return detail::simd_negate(*this);
   }
 
   Tensor src = contiguous();
