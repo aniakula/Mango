@@ -97,10 +97,8 @@ TEST(TensorAutograd, MatMulBackwardComputesBothMatrixGradients) {
 }
 
 TEST(TensorAutograd, TransposeBackwardUsesOriginalDimensions) {
-  Tensor value({1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
-               Shape{2, 2, 2}, true);
-  Tensor weights({1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
-                 Shape{2, 2, 2});
+  Tensor value({1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0}, Shape{2, 2, 2}, true);
+  Tensor weights({1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0}, Shape{2, 2, 2});
 
   Tensor loss = (value.transpose(0, 2) * weights).sum();
   loss.backward();
@@ -136,8 +134,7 @@ TEST(TensorAutograd, NonRecordingOpsDoNotCreateGraph) {
 
 TEST(TensorAutograd, SoftmaxBackwardMatchesJacobianVectorProduct) {
   Tensor input({0.0, 1.0, 2.0}, Shape{3}, true);
-  Tensor output({0.09003057317038046, 0.24472847105479764,
-                 0.6652409557748219},
+  Tensor output({0.09003057317038046, 0.24472847105479764, 0.6652409557748219},
                 Shape{3});
   SoftmaxBackward backward(input, output);
   backward.backwardPass(Tensor({1.0, 2.0, 3.0}, Shape{3}));
@@ -154,7 +151,8 @@ TEST(TensorAutograd, SharedLeafReceivesEveryPathContribution) {
   expect_grad_near<double>(x, {5, 7});
 }
 
-TEST(TensorAutograd, SharedIntermediateRunsBackwardAfterAllConsumersContribute) {
+TEST(TensorAutograd,
+     SharedIntermediateRunsBackwardAfterAllConsumersContribute) {
   Tensor x({2.0, 3.0}, Shape{2}, true);
   Tensor squared = x.square();
   Tensor loss = (squared + squared).sum();

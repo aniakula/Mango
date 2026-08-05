@@ -4,7 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdint>
 #include <vector>
 
 namespace mango::test {
@@ -26,8 +25,8 @@ void expect_values(const Tensor &tensor, std::initializer_list<T> expected) {
 }
 
 template <typename T>
-void expect_values_near(const Tensor &tensor,
-                        std::initializer_list<T> expected, double tolerance) {
+void expect_values_near(const Tensor &tensor, std::initializer_list<T> expected,
+                        double tolerance) {
   const std::vector<T> actual = values<T>(tensor);
   ASSERT_EQ(actual.size(), expected.size());
   size_t index = 0;

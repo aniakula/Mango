@@ -98,8 +98,8 @@ void apply_Op_strided(void *lhs, const void *rhs, const Shape &shape,
 }
 
 template <typename T, typename Op>
-void apply_Op_scalar_strided(void *lhs, const void *scalar,
-                             const Shape &shape, const Shape &strides, Op op) {
+void apply_Op_scalar_strided(void *lhs, const void *scalar, const Shape &shape,
+                             const Shape &strides, Op op) {
   T *a = static_cast<T *>(lhs);
   const T value = *static_cast<const T *>(scalar);
   for (size_t flat = 0; flat < shape.numel(); ++flat) {
