@@ -2,15 +2,14 @@
 
 namespace mango {
 
-TransposeBackward::TransposeBackward(Tensor a) {
-  parents_.push_back(std::move(a));
+TransposeBackward::TransposeBackward(Tensor a, size_t dim1, size_t dim2)
+    : dim1_(dim1), dim2_(dim2) {
+  add_parent(std::move(a));
 }
 
 void TransposeBackward::backwardPass(const Tensor &grad_out) {
-  parents_[0].accum_grad(grad_out.transpose_nr());
-  if (parents_[0].grad_fn()) {
-    parents_[0].grad_fn()->backwardPass(*parents_[0].grad());
-  }
+  propagate(parents_[0],
+            grad_out.transpose_nr(dim1_, dim2_).contiguous());
 }
 
 std::string TransposeBackward::function() const { return "transpose_fn"; }

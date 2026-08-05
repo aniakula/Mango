@@ -39,7 +39,7 @@ void apply_cast(Tensor &src, Tensor &new_tensor) {
   F *src_ptr = static_cast<F *>(src.data());
   T *to_ptr = static_cast<T *>(new_tensor.data());
   for (size_t idx = 0; idx < src.numel(); idx++) {
-    to_ptr[idx] = static_cast<T>(*src_ptr);
+    to_ptr[idx] = static_cast<T>(src_ptr[idx]);
   }
 }
 
@@ -86,6 +86,28 @@ void apply_Op_scalar(void *lhs, const void *scalar, size_t n, Op op) {
   }
 }
 
+template <typename T, typename Op>
+void apply_Op_strided(void *lhs, const void *rhs, const Shape &shape,
+                      const Shape &strides, Op op) {
+  T *a = static_cast<T *>(lhs);
+  const T *b = static_cast<const T *>(rhs);
+  for (size_t flat = 0; flat < shape.numel(); ++flat) {
+    const size_t index = linear_index(flat, shape, strides);
+    a[index] = op(a[index], b[flat]);
+  }
+}
+
+template <typename T, typename Op>
+void apply_Op_scalar_strided(void *lhs, const void *scalar,
+                             const Shape &shape, const Shape &strides, Op op) {
+  T *a = static_cast<T *>(lhs);
+  const T value = *static_cast<const T *>(scalar);
+  for (size_t flat = 0; flat < shape.numel(); ++flat) {
+    const size_t index = linear_index(flat, shape, strides);
+    a[index] = op(a[index], value);
+  }
+}
+
 template <typename Op>
 void dispatch_Op(void *lhs, const void *rhs, size_t n, DType dtype, Op op) {
   switch (dtype) {
@@ -128,12 +150,61 @@ void dispatch_Op_scalar(void *lhs, const void *scalar, size_t n, DType dtype,
 }
 
 template <typename Op>
+void dispatch_Op_strided(void *lhs, const void *rhs, const Shape &shape,
+                         const Shape &strides, DType dtype, Op op) {
+  switch (dtype) {
+  case DType::F32:
+    apply_Op_strided<float>(lhs, rhs, shape, strides, op);
+    break;
+  case DType::F64:
+    apply_Op_strided<double>(lhs, rhs, shape, strides, op);
+    break;
+  case DType::I32:
+    apply_Op_strided<int32_t>(lhs, rhs, shape, strides, op);
+    break;
+  case DType::I64:
+    apply_Op_strided<int64_t>(lhs, rhs, shape, strides, op);
+    break;
+  case DType::B:
+    throw std::invalid_argument("element-wise op does not support bool");
+  }
+}
+
+template <typename Op>
+void dispatch_Op_scalar_strided(void *lhs, const void *scalar,
+                                const Shape &shape, const Shape &strides,
+                                DType dtype, Op op) {
+  switch (dtype) {
+  case DType::F32:
+    apply_Op_scalar_strided<float>(lhs, scalar, shape, strides, op);
+    break;
+  case DType::F64:
+    apply_Op_scalar_strided<double>(lhs, scalar, shape, strides, op);
+    break;
+  case DType::I32:
+    apply_Op_scalar_strided<int32_t>(lhs, scalar, shape, strides, op);
+    break;
+  case DType::I64:
+    apply_Op_scalar_strided<int64_t>(lhs, scalar, shape, strides, op);
+    break;
+  case DType::B:
+    throw std::invalid_argument("element-wise op does not support bool");
+  }
+}
+
+template <typename Op>
 void elementwise_inplace(Tensor &lhs, const Tensor &rhs, Op op) {
   assert_same_type(lhs.dtype(), rhs.dtype());
 
   if (is_scalar_like(rhs)) {
     Tensor scalar = rhs.contiguous();
-    dispatch_Op_scalar(lhs.data(), scalar.data(), lhs.numel(), lhs.dtype(), op);
+    if (lhs.is_contiguous()) {
+      dispatch_Op_scalar(lhs.data(), scalar.data(), lhs.numel(), lhs.dtype(),
+                         op);
+    } else {
+      dispatch_Op_scalar_strided(lhs.data(), scalar.data(), lhs.shape(),
+                                 lhs.strides(), lhs.dtype(), op);
+    }
     return;
   }
 
@@ -144,7 +215,12 @@ void elementwise_inplace(Tensor &lhs, const Tensor &rhs, Op op) {
 
   assert_same_shape(lhs.shape(), rhs.shape());
   Tensor other = rhs.is_contiguous() ? rhs : rhs.contiguous();
-  dispatch_Op(lhs.data(), other.data(), lhs.numel(), lhs.dtype(), op);
+  if (lhs.is_contiguous()) {
+    dispatch_Op(lhs.data(), other.data(), lhs.numel(), lhs.dtype(), op);
+  } else {
+    dispatch_Op_strided(lhs.data(), other.data(), lhs.shape(), lhs.strides(),
+                        lhs.dtype(), op);
+  }
 }
 
 template <typename Op>
@@ -152,14 +228,14 @@ Tensor elementwise_binary(const Tensor &lhs, const Tensor &rhs, Op op) {
   assert_same_type(lhs.dtype(), rhs.dtype());
 
   if (is_scalar_like(lhs) && !is_scalar_like(rhs)) {
-    Tensor out = rhs.clone();
+    Tensor out = rhs.contiguous().clone();
     Tensor scalar = lhs.contiguous();
     dispatch_Op_scalar(out.data(), scalar.data(), out.numel(), out.dtype(),
                        [&](auto a, auto s) { return op(s, a); });
     return out;
   }
 
-  Tensor out = lhs.clone();
+  Tensor out = lhs.contiguous().clone();
   elementwise_inplace(out, rhs, op);
   return out;
 }

@@ -5,8 +5,8 @@
 namespace mango {
 
 MatMulBackward::MatMulBackward(Tensor a, Tensor b) {
-  parents_.push_back(std::move(a));
-  parents_.push_back(std::move(b));
+  add_parent(std::move(a));
+  add_parent(std::move(b));
 }
 
 void MatMulBackward::backwardPass(const Tensor &grad_out) {
@@ -17,7 +17,7 @@ void MatMulBackward::backwardPass(const Tensor &grad_out) {
     throw std::invalid_argument("MatMulBackward: B must be at least 2D");
   }
   b_T.transpose_inplace(b_rank - 2, b_rank - 1);
-  parents_[0].accum_grad(grad_out.matmul_nr(b_T.contiguous()));
+  Tensor grad_a = grad_out.matmul_nr(b_T.contiguous());
 
   Tensor a_T = parents_[0].clone();
   const size_t a_rank = a_T.shape().rank();
@@ -25,14 +25,10 @@ void MatMulBackward::backwardPass(const Tensor &grad_out) {
     throw std::invalid_argument("MatMulBackward: A must be at least 2D");
   }
   a_T.transpose_inplace(a_rank - 2, a_rank - 1);
-  parents_[1].accum_grad(a_T.contiguous().matmul_nr(grad_out));
+  Tensor grad_b = a_T.contiguous().matmul_nr(grad_out);
 
-  if (parents_[0].grad_fn()) {
-    parents_[0].grad_fn()->backwardPass(*parents_[0].grad());
-  }
-  if (parents_[1].grad_fn()) {
-    parents_[1].grad_fn()->backwardPass(*parents_[1].grad());
-  }
+  propagate(parents_[0], grad_a);
+  propagate(parents_[1], grad_b);
 }
 
 std::string MatMulBackward::function() const {

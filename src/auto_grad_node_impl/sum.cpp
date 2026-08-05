@@ -2,13 +2,10 @@
 
 namespace mango {
 
-SumBackward::SumBackward(Tensor a) { parents_.push_back(std::move(a)); }
+SumBackward::SumBackward(Tensor a) { add_parent(std::move(a)); }
 
 void SumBackward::backwardPass(const Tensor &grad_out) {
-  parents_[0].accum_grad(grad_out);
-  if (parents_[0].grad_fn()) {
-    parents_[0].grad_fn()->backwardPass(*parents_[0].grad());
-  }
+  propagate(parents_[0], grad_out);
 }
 
 std::string SumBackward::function() const { return "Sum_fn"; }

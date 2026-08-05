@@ -5,7 +5,7 @@
 namespace mango {
 
 ReluBackward::ReluBackward(Tensor input) {
-  parents_.push_back(std::move(input));
+  add_parent(std::move(input));
 }
 
 void ReluBackward::backwardPass(const Tensor &grad_out) {
@@ -34,10 +34,7 @@ void ReluBackward::backwardPass(const Tensor &grad_out) {
   default:
     throw std::invalid_argument("relu backward: unsupported dtype");
   }
-  parents_[0].accum_grad(local);
-  if (parents_[0].grad_fn()) {
-    parents_[0].grad_fn()->backwardPass(*parents_[0].grad());
-  }
+  propagate(parents_[0], local);
 }
 
 std::string ReluBackward::function() const { return "Relu_fn"; }

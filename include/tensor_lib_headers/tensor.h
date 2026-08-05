@@ -24,7 +24,7 @@ public:
   Shape shape() const;
   Shape strides() const;
   DType dtype() const;
-  Tensor to(DType &&new_type);
+  Tensor to(DType new_type);
   size_t numel() const;
   size_t storage_offset() const;
   Node *grad_fn();
@@ -80,7 +80,7 @@ public:
     return a.matmul(b);
   }
 
-  Tensor transpose(const Tensor &other, size_t dim1 = 0, size_t dim2 = 1);
+  Tensor transpose(size_t dim1 = 0, size_t dim2 = 1) const;
   Tensor mean() const;
   Tensor sum() const;
   Tensor max() const;

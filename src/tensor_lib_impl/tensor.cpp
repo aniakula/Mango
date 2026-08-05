@@ -50,31 +50,32 @@ Shape Tensor::strides() const { return strides_; }
 
 DType Tensor::dtype() const { return dtype_; }
 
-Tensor Tensor::to(DType &&new_type) {
+Tensor Tensor::to(DType new_type) {
+  Tensor source = contiguous();
   switch (new_type) {
   case DType::F32: {
     Tensor new_tensor(this->shape(), DType::F32, learnable_);
-    detail::tensor_cast<float>(*this, new_tensor);
+    detail::tensor_cast<float>(source, new_tensor);
     return new_tensor;
   }
   case DType::F64: {
     Tensor new_tensor(this->shape(), DType::F64, learnable_);
-    detail::tensor_cast<double>(*this, new_tensor);
+    detail::tensor_cast<double>(source, new_tensor);
     return new_tensor;
   }
   case DType::I32: {
     Tensor new_tensor(this->shape(), DType::I32);
-    detail::tensor_cast<int32_t>(*this, new_tensor);
+    detail::tensor_cast<int32_t>(source, new_tensor);
     return new_tensor;
   }
   case DType::I64: {
     Tensor new_tensor(this->shape(), DType::I64);
-    detail::tensor_cast<int64_t>(*this, new_tensor);
+    detail::tensor_cast<int64_t>(source, new_tensor);
     return new_tensor;
   }
   case DType::B: {
     Tensor new_tensor(this->shape(), DType::B);
-    detail::tensor_cast<bool>(*this, new_tensor);
+    detail::tensor_cast<bool>(source, new_tensor);
     return new_tensor;
   }
   }
@@ -92,6 +93,8 @@ Tensor Tensor::mean() const {
   detail::divide_scalar_inplace(result.data(), result.dtype(), numel());
   if (requires_grad()) {
     result.grad_fn_ = std::make_shared<MeanBackward>(*this);
+    result.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(result.shape_, result.dtype_));
   }
   return result;
 }
@@ -101,9 +104,6 @@ Tensor Tensor::sum_nr() const {
   Tensor result(Shape{}, dtype_, /*learnable=*/false);
   detail::dispatch_reduction(input.data(), result.data(), input.numel(), dtype_,
                              detail::Reduction::Sum);
-  if (requires_grad()) {
-    result.grad_fn_ = std::make_shared<SumBackward>(*this);
-  }
   return result;
 }
 
@@ -136,6 +136,9 @@ void Tensor::reshape(const Shape &newShape) {
   if (newShape.numel() != shape_.numel()) {
     throw std::invalid_argument("reshape: numel must stay the same");
   }
+  if (!is_contiguous()) {
+    throw std::invalid_argument("reshape: tensor must be contiguous");
+  }
   shape_ = newShape;
   strides_ = Shape::compute_strides(newShape);
 }
@@ -143,6 +146,9 @@ void Tensor::reshape(const Shape &newShape) {
 Tensor Tensor::view(const Shape &newShape) const {
   if (newShape.numel() != shape_.numel()) {
     throw std::invalid_argument("view: numel must stay the same");
+  }
+  if (!is_contiguous()) {
+    throw std::invalid_argument("view: tensor must be contiguous");
   }
   Tensor out = *this;
   out.shape_ = newShape;
@@ -217,7 +223,12 @@ void Tensor::zero_grad() {
 }
 
 void Tensor::backward() {
-  this->grad_fn_->backwardPass(Tensor::ones<double>(this->shape()));
+  if (!grad_fn_) {
+    throw std::logic_error("backward: tensor has no grad_fn");
+  }
+  Tensor seed = dtype_ == DType::F32 ? Tensor::ones<float>(shape_)
+                                     : Tensor::ones<double>(shape_);
+  grad_fn_->backwardPass(seed);
 }
 
 Tensor Tensor::zeros(const Shape &shape, DType type) {
@@ -243,7 +254,7 @@ void Tensor::transpose_inplace(size_t dim1, size_t dim2) {
 //---- Non-recording helpers ----
 Tensor Tensor::transpose_nr(size_t dim1, size_t dim2) const {
   Tensor clone = this->clone();
-  clone.transpose_inplace();
+  clone.transpose_inplace(dim1, dim2);
   return clone;
 }
 
@@ -378,6 +389,8 @@ Tensor Tensor::operator+(const Tensor &other) const {
   Tensor out = add_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<AddBackward>(*this, other);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -387,6 +400,8 @@ Tensor Tensor::operator-() const {
   if (requires_grad()) {
     Tensor zero = Tensor::zeros(shape_, dtype_);
     out.grad_fn_ = std::make_shared<SubBackward>(std::move(zero), *this);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -395,6 +410,8 @@ Tensor Tensor::operator-(const Tensor &other) const {
   Tensor out = sub_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<SubBackward>(*this, other);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -403,6 +420,8 @@ Tensor Tensor::operator*(const Tensor &other) const {
   Tensor out = mult_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<MulBackward>(*this, other);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -425,10 +444,12 @@ Tensor &Tensor::operator*=(const Tensor &other) {
   return *this;
 }
 
-Tensor Tensor::transpose(const Tensor &other, size_t dim1, size_t dim2) {
-  Tensor out = other.transpose_nr(dim1, dim2);
-  if (requires_grad() || other.requires_grad()) {
-    out.grad_fn_ = std::make_shared<TransposeBackward>(*this, other);
+Tensor Tensor::transpose(size_t dim1, size_t dim2) const {
+  Tensor out = transpose_nr(dim1, dim2);
+  if (requires_grad()) {
+    out.grad_fn_ = std::make_shared<TransposeBackward>(*this, dim1, dim2);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -437,6 +458,8 @@ Tensor Tensor::sum() const {
   Tensor out = sum_nr();
   if (requires_grad()) {
     out.grad_fn_ = std::make_shared<SumBackward>(*this);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -445,6 +468,8 @@ Tensor Tensor::matmul(const Tensor &other) const {
   Tensor out = matmul_nr(other);
   if (requires_grad() || other.requires_grad()) {
     out.grad_fn_ = std::make_shared<MatMulBackward>(*this, other);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -453,6 +478,8 @@ Tensor Tensor::square() const {
   Tensor out = square_nr();
   if (requires_grad()) {
     out.grad_fn_ = std::make_shared<SquareBackward>(*this);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }
@@ -461,6 +488,8 @@ Tensor Tensor::relu() const {
   Tensor out = relu_nr();
   if (requires_grad()) {
     out.grad_fn_ = std::make_shared<ReluBackward>(*this);
+    out.grad_tensor_ =
+        std::make_shared<Tensor>(Tensor::zeros(out.shape_, out.dtype_));
   }
   return out;
 }

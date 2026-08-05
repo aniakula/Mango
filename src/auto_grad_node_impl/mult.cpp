@@ -3,20 +3,13 @@
 namespace mango {
 
 MulBackward::MulBackward(Tensor a, Tensor b) {
-  parents_.push_back(std::move(a));
-  parents_.push_back(std::move(b));
+  add_parent(std::move(a));
+  add_parent(std::move(b));
 }
 
 void MulBackward::backwardPass(const Tensor &grad_out) {
-  parents_[0].accum_grad(grad_out.mult_nr(parents_[1]));
-  parents_[1].accum_grad(grad_out.mult_nr(parents_[0]));
-  if (parents_[0].grad_fn()) {
-    parents_[0].grad_fn()->backwardPass(*parents_[0].grad());
-  }
-
-  if (parents_[1].grad_fn()) {
-    parents_[1].grad_fn()->backwardPass(*parents_[1].grad());
-  }
+  propagate(parents_[0], grad_out.mult_nr(parents_[1]));
+  propagate(parents_[1], grad_out.mult_nr(parents_[0]));
 }
 
 std::string MulBackward::function() const { return "Multiplication_fn"; }
